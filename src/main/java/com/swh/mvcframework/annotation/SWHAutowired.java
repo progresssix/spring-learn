@@ -6,5 +6,5 @@ import java.lang.annotation.*;
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
 public @interface SWHAutowired {
-    boolean required() default true;
+    String value() default "";
 }
