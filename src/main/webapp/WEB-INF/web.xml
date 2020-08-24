@@ -7,7 +7,7 @@
   <display-name>Swh Web Application</display-name>
   <servlet>
     <servlet-name>swhmvc</servlet-name>
-    <servlet-class>com.swh.mvcframework.v2.servlet.SWHDispatcherServlet</servlet-class>
+    <servlet-class>com.swh.mvcframework.v3.servlet.SWHDispatcherServlet</servlet-class>
     <init-param>
       <param-name>contextConfigLocation</param-name>
       <param-value>application.properties</param-value>

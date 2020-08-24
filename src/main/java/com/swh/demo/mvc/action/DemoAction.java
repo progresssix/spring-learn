@@ -27,4 +27,13 @@ public class DemoAction {
             e.printStackTrace();
         }
     }
+
+    @SWHRequestMapping("/add")
+    public void add(HttpServletRequest request,HttpServletResponse response, @SWHRequestParam("a") Integer a ,@SWHRequestParam("b") Integer b){
+        try {
+            response.getWriter().write(a + "+" + b + "=" + (a+b));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }

@@ -1,4 +1,4 @@
-package com.swh.mvcframework.v2.servlet;
+package com.swh.mvcframework.v3.servlet;
 
 import com.swh.mvcframework.annotation.*;
 
@@ -25,7 +25,9 @@ public class SWHDispatcherServlet extends HttpServlet {
 
     private Map<String,Object> ioc = new HashMap<String, Object>();
 
-    private Map<String,Method> handlerMapping = new HashMap<String, Method>();
+//    private Map<String,Method> handlerMapping = new HashMap<String, Method>();
+
+    private List<HandlerMapping> handlerMapping = new ArrayList<HandlerMapping>();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
@@ -43,59 +45,56 @@ public class SWHDispatcherServlet extends HttpServlet {
     }
 
     private void doDispatcher(HttpServletRequest req, HttpServletResponse resp) throws Exception{
+        HandlerMapping mapping = getHandler(req);
+        if (mapping == null){
+            resp.getWriter().write("404 not found");
+            return;
+        }
+        //获得方法的形参列表
+        Class<?> [] paramTypes = mapping.getParamTypes();
+
+        Object [] paramValues = new Object[paramTypes.length];
+
+        Map<String,String[]> params = req.getParameterMap();
+        for (Map.Entry<String, String[]> parm : params.entrySet()) {
+            String value = Arrays.toString(parm.getValue()).replaceAll("\\[|\\]","")
+                    .replaceAll("\\s",",");
+
+            if(!mapping.paramIndexMapping.containsKey(parm.getKey())){continue;}
+
+            int index = mapping.paramIndexMapping.get(parm.getKey());
+            paramValues[index] = convert(paramTypes[index],value);
+        }
+
+        if(mapping.paramIndexMapping.containsKey(HttpServletRequest.class.getName())) {
+            int reqIndex = mapping.paramIndexMapping.get(HttpServletRequest.class.getName());
+            paramValues[reqIndex] = req;
+        }
+
+        if(mapping.paramIndexMapping.containsKey(HttpServletResponse.class.getName())) {
+            int respIndex = mapping.paramIndexMapping.get(HttpServletResponse.class.getName());
+            paramValues[respIndex] = resp;
+        }
+
+        Object returnValue = mapping.method.invoke(mapping.controller,paramValues);
+        if(returnValue == null || returnValue instanceof Void){ return; }
+        resp.getWriter().write(returnValue.toString());
+    }
+
+    private HandlerMapping getHandler(HttpServletRequest req) {
+        if (handlerMapping.isEmpty()){return null;}
         String url = req.getRequestURI();
         String contextPath = req.getContextPath();
         url = url.replaceAll(contextPath, "").replaceAll("/+", "/");
 
-        if (!this.handlerMapping.containsKey(url)){
-            resp.getWriter().write("404 not found");
-            return;
-        }
-
-        Method method = this.handlerMapping.get(url);
-        String beanName = toLowerFirstCase(method.getDeclaringClass().getSimpleName());
-
-        Map<String ,String[]> params = req.getParameterMap();
-
-        Class<?>[] parameterTypes = method.getParameterTypes();
-
-        Object [] paramValues = new Object[parameterTypes.length];
-
-        for (int i = 0; i < parameterTypes.length; i++) {
-            Class parameterType = parameterTypes[i];
-
-            if (parameterType==HttpServletRequest.class){
-                paramValues[i]=req;
-                continue;
-            }else if (parameterType==HttpServletResponse.class){
-                paramValues[i]=resp;
-                continue;
+        for (HandlerMapping mapping : this.handlerMapping) {
+            if (mapping.getUrl().equals(url)){
+                return mapping;
             }
-            Annotation[][] annotations = method.getParameterAnnotations();
-            for (int j = i; j < annotations.length; j++) {
-                for (Annotation annotation : annotations[j]) {
-                    if (annotation instanceof SWHRequestParam){
-                        String paramName = ((SWHRequestParam) annotation).value();
-                        if (!"".equals(paramName.trim())){
-                            if (params.containsKey(paramName)){
-                                System.out.println(Arrays.toString(params.get(paramName)));
-                                String value = Arrays.toString(params.get(paramName))
-                                        .replaceAll("\\[|\\]","")
-                                        .replaceAll("\\s","");
-                                System.out.println(value);
-                                Object v = convert(parameterType,value);
-                                paramValues[j]=value;
-
-                            }
-                        }
-                    }
-                }
-            }
-
         }
-
-        method.invoke(ioc.get(beanName),paramValues);
+        return null;
     }
+
 
     private Object convert(Class<?> type,String value){
         if (Integer.class==type){
@@ -150,7 +149,8 @@ public class SWHDispatcherServlet extends HttpServlet {
                 SWHRequestMapping mapping = method.getAnnotation(SWHRequestMapping.class);
                 String url = (baseUrl + "/" + mapping.value()).replaceAll("/+","/");
 
-                handlerMapping.put(url,method);
+//                handlerMapping.put(url,method);
+                handlerMapping.add(new HandlerMapping(url,entry.getValue(),method));
 
                 System.out.println("Mapped :" + url + "," + method);
             }
@@ -258,6 +258,65 @@ public class SWHDispatcherServlet extends HttpServlet {
                     is.close();
                 }catch (IOException e){
                     e.printStackTrace();
+                }
+            }
+        }
+    }
+
+
+    public class HandlerMapping{
+        private String url;
+        private Method method;
+        private Object controller;
+        private Class<?> [] paramTypes;
+
+        private Map<String ,Integer> paramIndexMapping;
+
+        public Class<?>[] getParamTypes() {
+            return paramTypes;
+        }
+
+        public String getUrl() {
+            return url;
+        }
+
+        public Method getMethod() {
+            return method;
+        }
+
+        public Object getController() {
+            return controller;
+        }
+
+        public HandlerMapping(String url, Object controller, Method method){
+            this.url = url;
+            this.method = method;
+            this.controller = controller;
+
+            paramTypes = method.getParameterTypes();
+
+            paramIndexMapping = new HashMap<String, Integer>();
+            putparamIndexMapping(method);
+        }
+
+        private void putparamIndexMapping(Method method) {
+            Annotation[][] annotations = method.getParameterAnnotations();
+            for (int i = 0; i < annotations.length; i++) {
+                for (Annotation annotation : annotations[i]) {
+                    if (annotation instanceof SWHRequestParam){
+                        String paramName = ((SWHRequestParam) annotation).value();
+                        if (!"".equals(paramName)){
+                            paramIndexMapping.put(paramName,i);
+                        }
+                    }
+                }
+            }
+
+            Class<?>[] parameterTypes = method.getParameterTypes();
+            for (int i = 0; i < parameterTypes.length; i++) {
+                Class<?> type = parameterTypes[i];
+                if (type == HttpServletRequest.class || type == HttpServletResponse.class){
+                    paramIndexMapping.put(type.getName(),i);
                 }
             }
         }
